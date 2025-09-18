@@ -1,0 +1,605 @@
+                        <small>Total: ${product.stock} ${product.unitName}(s)</small>
+                    </div>
+                    <div class="card">
+                        <h2>Add Stock (Purchase)</h2>
+                        <div class="form-grid">
+                            <div class="form-group"><label>Add Units</label><input type="number" id="add-unit-detail" placeholder="0"></div>
+                            <div class="form-group"><label>Add Cases</label><input type="number" id="add-case-detail" placeholder="0"></div>
+                            <div class="form-group"><label>Payment Status</label><select id="payment-status-detail" class="form-group"><option>Paid</option><option>Unpaid</option></select></div>
+                            <div class="form-group"><label>&nbsp;</label><button class="btn" onclick="addStockFromDetail(${productId})">Add Stock</button></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h2>Adjust Stock (Correction)</h2>
+                        <p style="margin-bottom:15px; color: var(--text-light); font-size: 0.9em;">Use for corrections like spoilage or counting errors. Use positive numbers to add stock and negative numbers (e.g., -5) to remove stock.</p>
+                        <div class="form-grid">
+                            <div class="form-group"><label>Quantity to Adjust</label><input type="number" id="adjust-quantity" placeholder="e.g., -2 or 5"></div>
+                            <div class="form-group"><label>Reason</label><input type="text" id="adjust-reason" placeholder="e.g., Spoiled, Stock Count Correction"></div>
+                            <div class="form-group-full"><button class="btn btn-warning" onclick="adjustStock(${productId})">Submit Adjustment</button></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h2>Manage Product</h2>
+                        <div style="display:flex; gap:10px;">
+                            <button class="btn btn-secondary" onclick="openProductModal(${productId})">Edit Details</button>
+                            <button class="btn btn-danger" onclick="deleteProduct(${productId})">Delete Product</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+            document.getElementById('modals-container').innerHTML = detailViewHTML;
+        }
+
+        function addStockFromDetail(id) {
+            const product = products.find(p => p.id === id);
+            const unitQty = parseInt(document.getElementById(`add-unit-detail`).value) || 0;
+            const caseQty = parseInt(document.getElementById(`add-case-detail`).value) || 0;
+            const paymentStatus = document.getElementById(`payment-status-detail`).value;
+            const totalQty = unitQty + (caseQty * product.unitsPerCase);
+            if (totalQty > 0) {
+                product.stock += totalQty;
+                persist('pos_products', products);
+                const cost = totalQty * product.purchasePrice;
+                if (cost > 0) {
+                    expenses.push({ id: Date.now(), date: new Date().toISOString(), description: `Purchase: ${totalQty} x ${product.name}`, amount: cost, status: paymentStatus });
+                    persist('pos_expenses', expenses);
+                }
+                openProductDetails(id);
+                alert(`${totalQty} ${product.unitName}(s) added.`);
+            }
+        }
+
+        function adjustStock(productId) {
+            const quantityInput = document.getElementById('adjust-quantity');
+            const reasonInput = document.getElementById('adjust-reason');
+            const quantity = parseInt(quantityInput.value);
+            const reason = reasonInput.value.trim();
+            if (isNaN(quantity) || quantity === 0) { alert('Please enter a valid non-zero quantity.'); return; }
+            if (reason === '') { alert('Please provide a reason for the adjustment.'); return; }
+            const product = products.find(p => p.id === productId);
+            if (!product) { alert('Error: Product not found.'); return; }
+            const adjustment = { id: Date.now(), date: new Date().toISOString(), productId: product.id, productName: product.name, quantity: quantity, reason: reason, previousStock: product.stock };
+            inventoryAdjustments.push(adjustment);
+            persist('pos_inventoryAdjustments', inventoryAdjustments);
+            product.stock += quantity;
+            persist('pos_products', products);
+            alert(`Stock for ${product.name} adjusted by ${quantity}. New stock: ${product.stock}.`);
+            openProductDetails(productId);
+        }
+
+        function deleteProduct(id) {
+            if (confirm('Are you sure? This will permanently delete the product.')) {
+                products = products.filter(p => p.id !== id);
+                persist('pos_products', products);
+                closeModal('product-detail-view');
+                openInventoryView();
+                renderProducts();
+            }
+        }
+
+        function openProductModal(id = null) {
+            const p = id ? products.find(prod => prod.id === Number(id)) : {};
+            const modalHTML = `
+            <div class="modal-fullscreen" id="product-modal" style="display:block;">
+                <header class="modal-header">
+                    <h3 style="color:var(--primary);">${id ? 'Edit' : 'Add New'} Product</h3>
+                    <button class="btn btn-danger" onclick="closeModal('product-modal')">Cancel</button>
+                </header>
+                <div class="modal-body">
+                    <form id="product-form" class="form-grid card">
+                        <input type="hidden" id="product-id" value="${p.id || ''}">
+                        <div class="form-group form-group-full"><label>Product Name</label><input type="text" id="product-name" value="${p.name || ''}" required></div>
+                        <div class="form-group"><label>Unit Name</label><input type="text" id="unit-name" value="${p.unitName || 'Bottle'}" required></div>
+                        <div class="form-group"><label>Sell Price/Unit</label><input type="number" id="sell-price" value="${p.sellPrice || ''}" required step="0.01"></div>
+                        <div class="form-group"><label>Units/Half-Case</label><input type="number" id="units-per-half-case" value="${p.unitsPerHalfCase || 12}"></div>
+                        <div class="form-group"><label>Sell Price/Half-Case (Fixed)</label><input type="number" id="half-case-sell-price" value="${p.halfCaseSellPrice || ''}" step="0.01"></div>
+                        <div class="form-group"><label>Case Name</label><input type="text" id="case-name" value="${p.caseName || 'Case'}" required></div>
+                        <div class="form-group"><label>Units/Case</label><input type="number" id="units-per-case" value="${p.unitsPerCase || 24}" required></div>
+                        <div class="form-group"><label>Purchase Price/Case</label><input type="number" id="purchase-price-case" value="${p.purchasePriceCase || 0}" required step="0.01"></div>
+                        <div class="form-group"><label>Sell Price/Case (Fixed)</label><input type="number" id="case-sell-price" value="${p.caseSellPrice || ''}" step="0.01" placeholder="Auto-calculates if blank"></div>
+                        <div class="form-group form-group-full" style="margin-top:10px;">
+                            <button type="submit" class="btn" style="width:100%; padding: 15px; font-size: 1.2em;">${id ? 'Save Changes' : 'Add Product'}</button>
+                        </div>
+                    </form>
+                </div>
+            </div>`;
+            document.getElementById('modals-container').innerHTML = modalHTML;
+            document.getElementById('product-form').addEventListener('submit', saveProduct);
+        }
+
+        function saveProduct(e) {
+            e.preventDefault();
+            const id = document.getElementById('product-id').value;
+            const unitsPerCase = parseInt(document.getElementById('units-per-case').value) || 1;
+            const purchasePriceCase = parseFloat(document.getElementById('purchase-price-case').value) || 0;
+            const purchasePriceUnit = (unitsPerCase > 0) ? (purchasePriceCase / unitsPerCase) : 0;
+            const productData = {
+                name: document.getElementById('product-name').value,
+                unitName: document.getElementById('unit-name').value,
+                caseName: document.getElementById('case-name').value,
+                unitsPerCase: unitsPerCase,
+                purchasePriceCase: purchasePriceCase,
+                purchasePrice: purchasePriceUnit,
+                sellPrice: parseFloat(document.getElementById('sell-price').value),
+                caseSellPrice: parseFloat(document.getElementById('case-sell-price').value) || 0,
+                unitsPerHalfCase: parseInt(document.getElementById('units-per-half-case').value) || 0,
+                halfCaseSellPrice: parseFloat(document.getElementById('half-case-sell-price').value) || 0
+            };
+            if (id) {
+                const index = products.findIndex(p => p.id == id);
+                products[index] = { ...products[index], ...productData };
+            } else {
+                products.push({ id: Date.now(), stock: 0, ...productData });
+            }
+            persist('pos_products', products);
+            closeModal('product-modal');
+            openInventoryView();
+            renderProducts();
+        }
+        function printReceipt() { sendToRawBT(lastTransaction); }
+        function reprintReceipt(transactionId) {
+            const transaction = salesHistory.find(t => t.id === transactionId);
+            if (transaction) sendToRawBT(transaction);
+        }
+        function sendToRawBT(transaction) {
+            try {
+                const receiptText = generateReceiptText(transaction);
+                const encodedText = encodeURIComponent(receiptText);
+                window.location.href = `rawbt:${encodedText}`;
+            } catch (e) {
+                alert("Printing failed. Please ensure RawBT app is installed.");
+                console.error(e);
+            }
+        }
+        function generateReceiptText(transaction) {
+            const { items, total, cash, change, date } = transaction;
+            const divider = '--------------------------------\n';
+            let receiptText = `Date: ${new Date(date).toLocaleString()}\n${divider}`;
+            items.forEach(item => {
+                const itemTotal = `P${(item.sellPrice * item.quantity).toFixed(2)}`;
+                const itemLine = `${item.quantity}x ${item.name}`;
+                const totalChars = 32;
+                const padding = totalChars - itemLine.length - itemTotal.length;
+                receiptText += itemLine + ' '.repeat(Math.max(1, padding)) + itemTotal + '\n';
+            });
+            receiptText += divider;
+            const labelWidth = 10;
+            receiptText += 'Total:'.padEnd(labelWidth) + `P${total.toFixed(2)}\n`;
+            if (cash !== undefined) receiptText += 'Cash:'.padEnd(labelWidth) + `P${cash.toFixed(2)}\n`;
+            if (change !== undefined) receiptText += 'Change:'.padEnd(labelWidth) + `P${change.toFixed(2)}\n`;
+            receiptText += `${divider}Thank you!\n\n\n\n`;
+            return receiptText;
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if(modal) modal.remove();
+        }
+        function generateEODReport() {
+            const todayStr = new Date().toISOString().slice(0, 10);
+            if (dailyReports.some(r => r.id === todayStr)) { alert('Report already generated for today.'); return; }
+            const todaysTransactions = salesHistory.filter(t => new Date(t.date).toISOString().slice(0, 10) === todayStr);
+            const totalSales = todaysTransactions.reduce((sum, tx) => sum + tx.total, 0);
+            const costOfGoodsSold = todaysTransactions.reduce((sum, tx) => {
+                const txCost = tx.items.reduce((itemSum, item) => {
+                    let unitsSold = 0;
+                    if(item.type === 'case') unitsSold = item.quantity * item.unitsPerCase;
+                    else if (item.type === 'half-case') unitsSold = item.quantity * item.unitsPerHalfCase;
+                    else unitsSold = item.quantity;
+                    return itemSum + (item.purchasePrice * unitsSold);
+                }, 0);
+                return sum + txCost;
+            }, 0);
+            const grossProfit = totalSales - costOfGoodsSold;
+            const todayExpenses = expenses.filter(e => new Date(e.date).toISOString().slice(0, 10) === todayStr).reduce((sum, e) => sum + e.amount, 0);
+            const netIncome = grossProfit - todayExpenses;
+            const report = { id: todayStr, date: new Date().toISOString(), totalSales, costOfGoodsSold, grossProfit, todayExpenses, netIncome, salesData: JSON.parse(JSON.stringify(todaysTransactions)) };
+            dailyReports.push(report);
+            persist('pos_dailyReports', dailyReports);
+            alert('End of Day Report Generated!');
+            renderAdminView(); // Re-render to update the button
+            viewReport(report.id);
+        }
+
+        function viewReport(reportId) {
+            const report = dailyReports.find(r => r.id === reportId);
+            const summaryContainer = document.getElementById('eod-summary');
+            if (!report || !summaryContainer) return;
+            const reportMetric = (label, value, isProfitLoss = false) => `<div style="display:flex; justify-content:space-between; font-size:1.2em; padding:10px; border-bottom:1px solid #eee;"><span style="color:#555;">${label}</span> <span style="font-weight:bold; color:${isProfitLoss ? (value >= 0 ? 'var(--primary)' : 'var(--danger)') : 'var(--text-dark)'};">${currencySymbol}${value.toFixed(2)}</span></div>`;
+            summaryContainer.innerHTML = `<h3>Report for ${new Date(report.date).toLocaleDateString()}</h3>
+                ${reportMetric('Total Sales', report.totalSales)}
+                ${reportMetric('Cost of Goods', -report.costOfGoodsSold)}
+                ${reportMetric('Gross Profit', report.grossProfit, true)}
+                ${reportMetric('Total Expenses', -report.todayExpenses)}
+                <div style="border-top:2px solid #333; margin-top:10px;">${reportMetric('Net Income', report.netIncome, true)}</div>`;
+        }
+
+        function exportToCsv(filename, data) {
+            if (data.length === 0) { alert('No data to export.'); return; }
+            const headers = Object.keys(data[0]);
+            const headerRow = headers.join(',') + '\n';
+            const dataRows = data.map(row => {
+                return headers.map(header => {
+                    let cell = row[header];
+                    if (Array.isArray(cell)) {
+                        if (header === 'items') cell = cell.map(i => `${i.quantity}x ${i.name}`).join('; ');
+                        else if (header === 'salesData') cell = `${cell.length} transaction(s)`;
+                    }
+                    return `"${(cell || '').toString().replace(/"/g, '""')}"`;
+                }).join(',');
+            }).join('\n');
+            const blob = new Blob([headerRow + dataRows], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function triggerImport() {
+            if (!confirm('This will overwrite all current products. Make sure you have a backup. Continue?')) { return; }
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.csv';
+            fileInput.onchange = importProducts;
+            fileInput.click();
+        }
+
+        function importProducts(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const text = e.target.result;
+                try {
+                    const parsedProducts = parseCsv(text);
+                    if (parsedProducts.length > 0) {
+                        products = parsedProducts;
+                        persist('pos_products', products);
+                        alert(`Successfully imported ${products.length} products!`);
+                        openInventoryView();
+                        renderProducts();
+                    } else { alert('Could not find valid product data in the file.'); }
+                } catch (error) { alert(`An error occurred: ${error.message}`); }
+            };
+            reader.readAsText(file);
+        }
+
+        function parseCsv(csvText) {
+            const lines = csvText.trim().split(/\r\n|\n/);
+            if (lines.length < 2) return [];
+            const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+            const requiredHeaders = ['name', 'sellPrice', 'unitsPerCase', 'purchasePriceCase'];
+            if (!requiredHeaders.every(h => headers.includes(h))) { throw new Error('CSV file is missing required headers: ' + requiredHeaders.join(', ')); }
+            const newProducts = [];
+            for (let i = 1; i < lines.length; i++) {
+                if (!lines[i]) continue;
+                const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+                let productObj = {};
+                headers.forEach((header, index) => { productObj[header] = values[index]; });
+                const unitsPerCase = parseInt(productObj.unitsPerCase) || 1;
+                const purchasePriceCase = parseFloat(productObj.purchasePriceCase) || 0;
+                productObj = {
+                    ...productObj,
+                    id: Date.now() + i,
+                    stock: parseInt(productObj.stock) || 0,
+                    unitsPerCase: unitsPerCase,
+                    purchasePriceCase: purchasePriceCase,
+                    purchasePrice: (unitsPerCase > 0) ? (purchasePriceCase / unitsPerCase) : 0,
+                    sellPrice: parseFloat(productObj.sellPrice),
+                    caseSellPrice: parseFloat(productObj.caseSellPrice) || 0,
+                    unitsPerHalfCase: parseInt(productObj.unitsPerHalfCase) || 0,
+                    halfCaseSellPrice: parseFloat(productObj.halfCaseSellPrice) || 0
+                };
+                if (productObj.name && !isNaN(productObj.sellPrice)) { newProducts.push(productObj); }
+            }
+            return newProducts;
+        }
+
+        function backupAllData() {
+            const allData = { products, salesHistory, expenses, dailyReports, inventoryAdjustments };
+            const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const today = new Date().toISOString().slice(0, 10);
+            link.download = `pos_backup_${today}.json`;
+            link.href = url;
+            link.click();
+            URL.revokeObjectURL(url);
+            alert('Backup file has been downloaded!');
+        }
+
+        function triggerRestore() {
+            if (!confirm('Restoring from a backup will OVERWRITE all current data. This action cannot be undone. Are you sure you want to continue?')) { return; }
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.json';
+            fileInput.onchange = restoreFromFile;
+            fileInput.click();
+        }
+
+        function restoreFromFile(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (data.products && data.salesHistory && data.expenses) {
+                        products = data.products || [];
+                        salesHistory = data.salesHistory || [];
+                        expenses = data.expenses || [];
+                        dailyReports = data.dailyReports || [];
+                        inventoryAdjustments = data.inventoryAdjustments || [];
+                        persist('pos_products', products);
+                        persist('pos_salesHistory', salesHistory);
+                        persist('pos_expenses', expenses);
+                        persist('pos_dailyReports', dailyReports);
+                        persist('pos_inventoryAdjustments', inventoryAdjustments);
+                        alert('Data successfully restored! The application will now refresh.');
+                        location.reload();
+                    } else { alert('Error: The selected file does not appear to be a valid backup file.'); }
+                } catch (error) { alert(`An error occurred while reading the file: ${error.message}`); }
+            };
+            reader.readAsText(file);
+        }
+// ✅ PATCH FOR QUICK STOCK ADJUSTMENT
+// Insert this into your openInventoryView() function after generating the inventory table
+
+function renderInventoryTableBody() {
+  return products.map(p => {
+    const cases = Math.floor(p.unitsPerCase > 0 ? p.stock / p.unitsPerCase : 0);
+    const units = p.unitsPerCase > 0 ? p.stock % p.unitsPerCase : p.stock;
+    return `<tr>
+        <td onclick="openProductDetails(${p.id})">
+            <strong>${p.name}</strong><br><small>${p.unitsPerCase} ${p.unitName}(s) per ${p.caseName}</small>
+        </td>
+        <td><strong>${cases}</strong> ${p.caseName}s + <strong>${units}</strong> ${p.unitName}(s)</td>
+        <td><button class="btn btn-sm btn-warning" onclick="quickAdjust(${p.id})">⚠️ Adjust</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// Add this new function
+function quickAdjust(productId) {
+  const product = products.find(p => p.id === productId);
+  if (!product) return;
+
+  const modalHTML = `
+    <div class="modal-fullscreen" id="adjust-modal" style="display:block;">
+      <header class="modal-header">
+        <h3 style="color:var(--danger);">Adjust Stock - ${product.name}</h3>
+        <button class="btn" onclick="closeModal('adjust-modal')">Cancel</button>
+      </header>
+      <div class="modal-body">
+        <div class="card">
+          <h2>Reason & Quantity</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Reason</label>
+              <select id="quick-adjust-reason" onchange="toggleCustomReason()">
+                <option value="Missing">❌ Missing</option>
+                <option value="Broken">💥 Broken</option>
+                <option value="Spoiled">🧯 Spoiled</option>
+                <option value="Rat Damage">🐭 Rat Damage</option>
+                <option value="Other">✍️ Other...</option>
+              </select>
+            </div>
+            <div class="form-group" id="custom-reason-group" style="display:none;">
+              <label>Custom Reason</label>
+              <input type="text" id="custom-reason" placeholder="Enter custom reason">
+            </div>
+            <div class="form-group">
+              <label>Quantity to Remove</label>
+              <input type="number" id="quick-adjust-qty" placeholder="e.g. 5">
+            </div>
+            <div class="form-group">
+              <label>&nbsp;</label>
+              <button class="btn btn-danger" onclick="submitQuickAdjust(${productId})">Confirm Adjustment</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('modals-container').innerHTML = modalHTML;
+}
+
+function toggleCustomReason() {
+  const sel = document.getElementById('quick-adjust-reason').value;
+  document.getElementById('custom-reason-group').style.display = (sel === 'Other') ? 'block' : 'none';
+}
+
+function submitQuickAdjust(productId) {
+  const qty = parseInt(document.getElementById('quick-adjust-qty').value);
+  if (isNaN(qty) || qty <= 0) { alert('Enter a valid quantity.'); return; }
+
+  let reason = document.getElementById('quick-adjust-reason').value;
+  if (reason === 'Other') {
+    reason = document.getElementById('custom-reason').value.trim();
+    if (!reason) { alert('Please enter a custom reason.'); return; }
+  }
+
+  const product = products.find(p => p.id === productId);
+  if (!product) return;
+
+  const adjustment = {
+    id: Date.now(),
+    date: new Date().toISOString(),
+    productId: product.id,
+    productName: product.name,
+    quantity: -qty,
+    reason: reason,
+    previousStock: product.stock
+  };
+
+  inventoryAdjustments.push(adjustment);
+  persist('pos_inventoryAdjustments', inventoryAdjustments);
+
+  product.stock -= qty;
+  persist('pos_products', products);
+
+  alert(`Stock reduced by ${qty} (${reason}).`);
+  closeModal('adjust-modal');
+  openInventoryView();
+}
+function renderInventoryTableBody() {
+  return products.map(p => {
+    const cases = Math.floor(p.unitsPerCase > 0 ? p.stock / p.unitsPerCase : 0);
+    const units = p.unitsPerCase > 0 ? p.stock % p.unitsPerCase : p.stock;
+    return `<tr>
+        <td onclick="openProductDetails(${p.id})">
+            <strong>${p.name}</strong><br><small>${p.unitsPerCase} ${p.unitName}(s) per ${p.caseName}</small>
+        </td>
+        <td><strong>${cases}</strong> ${p.caseName}s + <strong>${units}</strong> ${p.unitName}(s)</td>
+        <td><button class="btn btn-sm btn-warning" onclick="quickAdjust(${p.id})">⚠️ Adjust</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// Add this new function
+function quickAdjust(productId) {
+  const product = products.find(p => p.id === productId);
+  if (!product) return;
+
+  const modalHTML = `
+    <div class="modal-fullscreen" id="adjust-modal" style="display:block;">
+      <header class="modal-header">
+        <h3 style="color:var(--danger);">Adjust Stock - ${product.name}</h3>
+        <button class="btn" onclick="closeModal('adjust-modal')">Cancel</button>
+      </header>
+      <div class="modal-body">
+        <div class="card">
+          <h2>Reason & Quantity</h2>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Reason</label>
+              <select id="quick-adjust-reason" onchange="toggleCustomReason()">
+                <option value="Missing">❌ Missing</option>
+                <option value="Broken">💥 Broken</option>
+                <option value="Spoiled">🧯 Spoiled</option>
+                <option value="Rat Damage">🐭 Rat Damage</option>
+                <option value="Other">✍️ Other...</option>
+              </select>
+            </div>
+            <div class="form-group" id="custom-reason-group" style="display:none;">
+              <label>Custom Reason</label>
+              <input type="text" id="custom-reason" placeholder="Enter custom reason">
+            </div>
+            <div class="form-group">
+              <label>Quantity to Remove</label>
+              <input type="number" id="quick-adjust-qty" placeholder="e.g. 5">
+            </div>
+            <div class="form-group">
+              <label>&nbsp;</label>
+              <button class="btn btn-danger" onclick="submitQuickAdjust(${productId})">Confirm Adjustment</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('modals-container').innerHTML = modalHTML;
+}
+
+function toggleCustomReason() {
+  const sel = document.getElementById('quick-adjust-reason').value;
+  document.getElementById('custom-reason-group').style.display = (sel === 'Other') ? 'block' : 'none';
+}
+
+function submitQuickAdjust(productId) {
+  const qty = parseInt(document.getElementById('quick-adjust-qty').value);
+  if (isNaN(qty) || qty <= 0) { alert('Enter a valid quantity.'); return; }
+
+  let reason = document.getElementById('quick-adjust-reason').value;
+  if (reason === 'Other') {
+    reason = document.getElementById('custom-reason').value.trim();
+    if (!reason) { alert('Please enter a custom reason.'); return; }
+  }
+
+  const product = products.find(p => p.id === productId);
+  if (!product) return;
+
+  const adjustment = {
+    id: Date.now(),
+    date: new Date().toISOString(),
+    productId: product.id,
+    productName: product.name,
+    quantity: -qty,
+    reason: reason,
+    previousStock: product.stock
+  };
+
+  inventoryAdjustments.push(adjustment);
+  persist('pos_inventoryAdjustments', inventoryAdjustments);
+
+  product.stock -= qty;
+  persist('pos_products', products);
+
+  alert(`Stock reduced by ${qty} (${reason}).`);
+  closeModal('adjust-modal');
+  openInventoryView();
+}
+
+// ✅ CSV EXPORT PATCH
+function exportToCsv(filename, data) {
+  if (data.length === 0) { alert('No data to export.'); return; }
+  const headers = Object.keys(data[0]);
+  const headerRow = headers.join(',') + '\n';
+  const dataRows = data.map(row => {
+    return headers.map(header => {
+      let cell = row[header];
+      if (Array.isArray(cell)) {
+        if (header === 'items') cell = cell.map(i => `${i.quantity}x ${i.name}`).join('; ');
+        else if (header === 'salesData') cell = `${cell.length} transaction(s)`;
+      } else if (!isNaN(cell) && typeof cell === 'number') {
+        cell = cell.toFixed(2); // ✅ round to 2 decimals for Excel
+      }
+      return `"${(cell || '').toString().replace(/"/g, '""')}"`;
+    }).join(',');
+  }).join('\n');
+  const blob = new Blob([headerRow + dataRows], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  link.style.visibility = 'hidden';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+function processRefund(transactionId) {
+  const transaction = salesHistory.find(t => t.id === transactionId);
+  if (!transaction || transaction.isRefund) {
+    alert("Invalid or already refunded.");
+    return;
+  }
+
+  if (!confirm("Refund this transaction? Stock will be returned.")) return;
+
+  // 1. Return stock
+  transaction.items.forEach(item => {
+    const product = products.find(p => p.id === item.id);
+    if (product) {
+      let units = item.quantity;
+      if (item.type === 'case') units *= product.unitsPerCase;
+      else if (item.type === 'half-case') units *= product.unitsPerHalfCase;
+      product.stock += units;
+    }
+  });
+
+  // 2. Mark as refunded
+  transaction.isRefund = true;
+  persist('pos_salesHistory', salesHistory);
+  persist('pos_products', products);
+
+  alert("Refund processed. Stock returned.");
+  renderAdminView(); // Refresh view
+}
+    </script>
+</body>
+</html>
+
