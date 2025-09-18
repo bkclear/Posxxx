@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Instagram Data Manager</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f4f6f8; }
+    h2 { margin-top: 20px; }
+    textarea, input { width: 100%; padding: 8px; margin: 6px 0; }
+    button { padding: 8px 14px; margin: 6px 4px; cursor: pointer; border-radius: 6px; border: none; }
+    .generate { background: #007bff; color: white; }
+    .save { background: #28a745; color: white; }
+    .card { background: #fff; padding: 12px; margin: 10px 0; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+    .card input { width: auto; margin-right: 6px; }
+    .tabs { display: flex; gap: 10px; margin: 20px 0; }
+    .tab { padding: 10px 16px; background: #ddd; border-radius: 6px; cursor: pointer; }
+    .tab.active { background: #007bff; color: white; }
+  </style>
+</head>
+<body>
+  <h2>Instagram Bulk Manager</h2>
+
+  <textarea id="bulkInput" rows="4" placeholder="Paste Instagram links (one per line)"></textarea>
+  <button class="generate" onclick="generateCards()">Generate Cards</button>
+
+  <div class="tabs">
+    <div id="tabCheck" class="tab active" onclick="switchTab('check')">Check</div>
+    <div id="tabNotCheck" class="tab" onclick="switchTab('notcheck')">Not Check</div>
+  </div>
+
+  <div id="cardsContainer"></div>
+
+  <script>
+    // 🔹 Replace with your Web App URL (ending in /exec)
+    const API_URL = "https://script.google.com/macros/s/AKfycbxBER2pB5YO29Roh1brKonqoFVqIn69eQZNnXU7k742UyZoX-Uxz5tshrB-1zXHht-ZPg/exec";
+
+    let currentTab = "check";
+    let savedData = {}; // username -> card reference
+
+    function extractUsername(link) {
+      try {
+        const url = new URL(link.trim());
+        return url.pathname.split("/").filter(Boolean)[0];
+      } catch {
+        return null;
+      }
+    }
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.getElementById("tabCheck").classList.toggle("active", tab === "check");
+      document.getElementById("tabNotCheck").classList.toggle("active", tab === "notcheck");
+      loadData();
+    }
+
+    function generateCards() {
+      const input = document.getElementById("bulkInput").value.trim();
+      if (!input) return;
+      const lines = input.split("\n");
+
+      lines.forEach(link => {
+        const username = extractUsername(link);
+        if (!username || savedData[username]) return;
+
+        createCard(link, username, "", "Active");
+      });
+
+      document.getElementById("bulkInput").value = "";
+    }
+
+    function createCard(link, username, email, status) {
+      const container = document.getElementById("cardsContainer");
+
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `
+        <p><b>Link:</b> <a href="${link}" target="_blank">${link}</a></p>
+        <p><b>Username:</b> <input type="text" value="${username}" id="user-${username}"></p>
+        <p><b>Email:</b> <input type="text" value="${email}" id="email-${username}" placeholder="Enter email"></p>
+        <p><b>Status:</b> 
+          <select id="status-${username}">
+            <option ${status==="Active"?"selected":""}>Active</option>
+            <option ${status==="Not Active"?"selected":""}>Not Active</option>
+          </select>
+        </p>
+        <button class="save" onclick="saveCard('${link}', '${username}')">Save</button>
+      `;
+
+      container.appendChild(card);
+      savedData[username] = card;
+    }
+
+    async function saveCard(link, oldUsername) {
+      const username = document.getElementById(`user-${oldUsername}`).value.trim();
+      const email = document.getElementById(`email-${oldUsername}`).value.trim();
+      const status = document.getElementById(`status-${oldUsername}`).value;
+
+      if (!username) return alert("Username required");
+
+      const payload = { link, username, email, status };
+
+      try {
+        const res = await fetch(API_URL, {
+          method: "POST",
+          body: JSON.stringify(payload),
+          headers: { "Content-Type": "application/json" }
+        });
+        const data = await res.json();
+
+        if (data.status === "success") {
+          alert("Saved to Google Sheets ✅");
+          loadData();
+        } else {
+          alert("Error: " + data.message);
+        }
+      } catch (err) {
+        alert("Save failed: " + err);
+      }
+    }
+
+    async function loadData() {
+      document.getElementById("cardsContainer").innerHTML = "";
+      try {
+        const res = await fetch(API_URL);
+        const data = await res.json();
+
+        if (data.status === "success") {
+          savedData = {};
+          data.data.forEach(row => {
+            createCard(row.link, row.username, row.email, row.status);
+          });
+        }
+      } catch (err) {
+        console.error("Load failed", err);
+      }
+    }
+
+    // Load initial data
+    loadData();
+  </script>
+</body>
+</html>
